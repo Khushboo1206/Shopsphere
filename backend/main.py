@@ -1,8 +1,18 @@
 from fastapi import FastAPI
 from sqlalchemy import text
+from fastapi.middleware.cors import CORSMiddleware
 from database import engine
 
 app = FastAPI()
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # HOME ROUTE
@@ -173,3 +183,43 @@ def revenue_summary():
             })
 
         return revenue_data
+
+
+# DASHBOARD STATS API
+@app.get("/dashboard-stats")
+def dashboard_stats():
+
+    with engine.connect() as connection:
+
+        products_result = connection.execute(text("""
+            SELECT COUNT(*) AS total_products
+            FROM products
+        """))
+
+        customers_result = connection.execute(text("""
+            SELECT COUNT(*) AS total_customers
+            FROM users
+        """))
+
+        revenue_result = connection.execute(text("""
+            SELECT COALESCE(SUM(total_amount), 0) AS total_revenue
+            FROM orders
+        """))
+
+        alerts_result = connection.execute(text("""
+            SELECT COUNT(*) AS inventory_alerts
+            FROM inventory
+            WHERE stock_quantity <= reorder_level
+        """))
+
+        total_products = products_result.fetchone().total_products
+        total_customers = customers_result.fetchone().total_customers
+        total_revenue = revenue_result.fetchone().total_revenue
+        inventory_alerts = alerts_result.fetchone().inventory_alerts
+
+        return {
+            "total_products": total_products,
+            "total_customers": total_customers,
+            "total_revenue": float(total_revenue),
+            "inventory_alerts": inventory_alerts
+        }
