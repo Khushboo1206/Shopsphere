@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-
+import ExportButton from "@/components/ExportButton"
 import Sidebar from "@/components/Sidebar"
 
 export default function ProductsPage() {
@@ -44,7 +44,11 @@ export default function ProductsPage() {
           <p className="text-zinc-400 mt-3">
             Manage and monitor inventory
           </p>
+          <div className="mt-8 flex justify-end">
 
+  <ExportButton data={filteredProducts} />
+
+</div> 
           {/* Search */}
           <div className="mt-8">
 

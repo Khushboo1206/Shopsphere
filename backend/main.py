@@ -18,27 +18,54 @@ app.add_middleware(
 # HOME ROUTE
 @app.get("/")
 def home():
-    return {"message": "ShopSphere Backend Running"}
+    return {
+        "message": "ShopSphere Backend Running"
+    }
 
 
-# PRODUCTS API
+# PRODUCTS API WITH SEARCH + FILTER
 @app.get("/products")
-def get_products():
+def get_products(
+    search: str = "",
+    stock_filter: str = "all"
+):
 
     with engine.connect() as connection:
 
-        result = connection.execute(text("""
+        query = """
             SELECT
                 product_id,
                 product_name,
                 price,
                 stock_quantity
+
             FROM products
-        """))
+
+            WHERE LOWER(product_name)
+            LIKE LOWER(:search)
+        """
+
+        if stock_filter == "low":
+
+            query += """
+                AND stock_quantity <= 20
+            """
+
+        query += """
+            ORDER BY stock_quantity ASC
+        """
+
+        result = connection.execute(
+            text(query),
+            {
+                "search": f"%{search}%"
+            }
+        )
 
         products = []
 
         for row in result:
+
             products.append({
                 "product_id": row.product_id,
                 "product_name": row.product_name,
@@ -49,7 +76,7 @@ def get_products():
         return products
 
 
-# TOP PRODUCTS ANALYTICS API
+# TOP PRODUCTS API
 @app.get("/top-products")
 def top_products():
 
@@ -58,24 +85,25 @@ def top_products():
         result = connection.execute(text("""
             SELECT
                 p.product_name,
-                
+
                 SUM(oi.quantity) AS total_units_sold,
-                
+
                 SUM(oi.quantity * oi.price) AS total_revenue
-                
+
             FROM order_items oi
-            
+
             JOIN products p
             ON oi.product_id = p.product_id
-            
+
             GROUP BY p.product_name
-            
+
             ORDER BY total_units_sold DESC;
         """))
 
         products = []
 
         for row in result:
+
             products.append({
                 "product_name": row.product_name,
                 "total_units_sold": row.total_units_sold,
@@ -94,24 +122,25 @@ def customer_rankings():
         result = connection.execute(text("""
             SELECT
                 u.first_name,
-                
+
                 SUM(o.total_amount) AS total_spent,
-                
+
                 RANK() OVER (
                     ORDER BY SUM(o.total_amount) DESC
                 ) AS customer_rank
-                
+
             FROM users u
-            
+
             JOIN orders o
             ON u.user_id = o.user_id
-            
+
             GROUP BY u.first_name;
         """))
 
         customers = []
 
         for row in result:
+
             customers.append({
                 "customer_name": row.first_name,
                 "total_spent": float(row.total_spent),
@@ -130,22 +159,23 @@ def inventory_alerts():
         result = connection.execute(text("""
             SELECT
                 p.product_name,
-                
+
                 i.stock_quantity,
-                
+
                 i.reorder_level
-                
+
             FROM inventory i
-            
+
             JOIN products p
             ON i.product_id = p.product_id
-            
+
             WHERE i.stock_quantity <= i.reorder_level;
         """))
 
         alerts = []
 
         for row in result:
+
             alerts.append({
                 "product_name": row.product_name,
                 "stock_quantity": row.stock_quantity,
@@ -155,28 +185,33 @@ def inventory_alerts():
         return alerts
 
 
-# REVENUE SUMMARY API
+# REVENUE SUMMARY API WITH FILTER
 @app.get("/revenue-summary")
-def revenue_summary():
+def revenue_summary(days: int = 30):
 
     with engine.connect() as connection:
 
         result = connection.execute(text("""
             SELECT
                 DATE(created_at) AS order_date,
-                
+
                 SUM(total_amount) AS daily_revenue
-                
+
             FROM orders
-            
+
+            WHERE created_at >= CURRENT_DATE - INTERVAL '1 day' * :days
+
             GROUP BY order_date
-            
+
             ORDER BY order_date;
-        """))
+        """), {
+            "days": days
+        })
 
         revenue_data = []
 
         for row in result:
+
             revenue_data.append({
                 "order_date": str(row.order_date),
                 "daily_revenue": float(row.daily_revenue)
@@ -213,8 +248,11 @@ def dashboard_stats():
         """))
 
         total_products = products_result.fetchone().total_products
+
         total_customers = customers_result.fetchone().total_customers
+
         total_revenue = revenue_result.fetchone().total_revenue
+
         inventory_alerts = alerts_result.fetchone().inventory_alerts
 
         return {
@@ -222,4 +260,56 @@ def dashboard_stats():
             "total_customers": total_customers,
             "total_revenue": float(total_revenue),
             "inventory_alerts": inventory_alerts
+        }
+
+
+# ADVANCED INSIGHTS API
+@app.get("/advanced-insights")
+def advanced_insights():
+
+    with engine.connect() as connection:
+
+        # TOTAL ORDERS
+        total_orders_result = connection.execute(text("""
+            SELECT COUNT(*) AS total_orders
+            FROM orders
+        """))
+
+        # AVERAGE ORDER VALUE
+        avg_order_result = connection.execute(text("""
+            SELECT AVG(total_amount) AS avg_order_value
+            FROM orders
+        """))
+
+        # BEST REVENUE DAY
+        best_day_result = connection.execute(text("""
+            SELECT
+                DATE(created_at) AS best_day,
+
+                SUM(total_amount) AS revenue
+
+            FROM orders
+
+            GROUP BY best_day
+
+            ORDER BY revenue DESC
+
+            LIMIT 1
+        """))
+
+        total_orders = (
+            total_orders_result.fetchone().total_orders
+        )
+
+        avg_order_value = (
+            avg_order_result.fetchone().avg_order_value
+        )
+
+        best_day_row = best_day_result.fetchone()
+
+        return {
+            "total_orders": total_orders,
+            "avg_order_value": float(avg_order_value),
+            "best_day": str(best_day_row.best_day),
+            "best_day_revenue": float(best_day_row.revenue)
         }
